@@ -1,4 +1,5 @@
 #include "async/async.h"
+#include "async/profiling.h"
 
 #include <iostream>
 
@@ -28,17 +29,19 @@ void consume(const char* path, ctx::continuation& c) {
 }
 
 int long_task(int input) {
+  profiling::zone zone{CURRENT_LOCATION()};
   int result = input;
   for (int i = 0; i < 3; i++) {
-    sleep(1);
+    profiling::sleep(1);
     result += 1;
   }
   return result;
 }
 
 int greeting_task() {
+  profiling::zone zone{CURRENT_LOCATION()};
   std::cout << "Hello world! Have an int.\n";
-  sleep(1);
+  profiling::sleep(1);
   return 13;
 }
 

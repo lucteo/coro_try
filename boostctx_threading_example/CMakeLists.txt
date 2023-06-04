@@ -51,9 +51,13 @@ set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
 find_package(Threads REQUIRED)
 target_link_libraries(myproj INTERFACE Threads::Threads)
 target_link_libraries(myproj INTERFACE CONAN_PKG::boost)
+target_link_libraries(myproj INTERFACE CONAN_PKG::tracy-interface)
 
 # Use C++20 standard
 target_compile_features(myproj INTERFACE cxx_std_20)
+
+# Use Tracy
+target_compile_definitions(myproj INTERFACE USE_TRACY=1)
 
 # Turn all warnings
 target_compile_options(myproj INTERFACE
@@ -86,5 +90,6 @@ add_library(myproj::myproj ALIAS myproj)
 add_executable(boostctx_threading_example main.cpp)
 target_link_libraries(boostctx_threading_example myproj)
 target_link_libraries(boostctx_threading_example CONAN_PKG::boost)
+target_link_libraries(boostctx_threading_example CONAN_PKG::tracy-interface)
 
 
