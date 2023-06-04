@@ -1,11 +1,21 @@
 #pragma once
 
+#include <unistd.h>
+
 #if USE_TRACY
 
 #include <tracy_interface.hpp>
 
 #define CURRENT_LOCATION()                                                                         \
   tracy_interface::location { nullptr, __FUNCTION__, __FILE__, __LINE__, 0 }
+#define CURRENT_LOCATION_N(name)                                                                   \
+  tracy_interface::location { name, __FUNCTION__, __FILE__, __LINE__, 0 }
+#define CURRENT_LOCATION_C(color)                                                                  \
+  tracy_interface::location {                                                                      \
+    nullptr, __FUNCTION__, __FILE__, __LINE__, static_cast<uint32_t>(color)                        \
+  }
+#define CURRENT_LOCATION_NC(name, color)                                                           \
+  tracy_interface::location { name, __FUNCTION__, __FILE__, __LINE__, static_cast<uint32_t>(color) }
 
 namespace profiling {
 
@@ -14,11 +24,19 @@ struct zone {
 
   ~zone() { tracy_interface::emit_zone_end(); }
 };
+
+inline void set_cur_thread_name(const char* static_name) {
+  tracy_interface::set_cur_thread_name(static_name);
+}
+
 } // namespace profiling
 
 #else
 
 #define CURRENT_LOCATION() 0
+#define CURRENT_LOCATION_N(name) 0
+#define CURRENT_LOCATION_C(color) 0
+#define CURRENT_LOCATION_NC(name, color) 0
 
 namespace profiling {
 
@@ -27,14 +45,22 @@ struct zone {
 
   ~zone() = default;
 };
+
+inline void set_cur_thread_name(const char* static_name) {}
+
 } // namespace profiling
 
 #endif
 
 namespace profiling {
 
-void sleep(int seconds) {
-  zone zone{CURRENT_LOCATION()};
+enum class color {
+  automatic = 0,
+  gray = 0x808080,
+};
+
+inline void sleep(int seconds) {
+  zone zone{CURRENT_LOCATION_C(color::gray)};
   ::sleep(seconds);
 }
 
