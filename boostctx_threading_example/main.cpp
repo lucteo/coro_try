@@ -116,7 +116,7 @@ private:
         return std::move(this->thread_cont_);
       } else {
         // The async thread finished; we can continue directly.
-        return {};
+        return await_cc;
       }
     });
     // We are here if both threads finish; but we don't know which thread finished last and is
