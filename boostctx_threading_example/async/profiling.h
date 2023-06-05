@@ -7,15 +7,26 @@
 #include <tracy_interface.hpp>
 
 #define CURRENT_LOCATION()                                                                         \
-  tracy_interface::location { nullptr, __FUNCTION__, __FILE__, __LINE__, 0 }
+  [](const char* f) -> tracy_interface::location {                                                 \
+    static tracy_interface::location l{nullptr, f, __FILE__, __LINE__, 0};                         \
+    return l;                                                                                      \
+  }(__FUNCTION__)
 #define CURRENT_LOCATION_N(name)                                                                   \
-  tracy_interface::location { name, __FUNCTION__, __FILE__, __LINE__, 0 }
+  [](const char* f) -> tracy_interface::location {                                                 \
+    static tracy_interface::location l{name, f, __FILE__, __LINE__, 0};                            \
+    return l;                                                                                      \
+  }(__FUNCTION__)
 #define CURRENT_LOCATION_C(color)                                                                  \
-  tracy_interface::location {                                                                      \
-    nullptr, __FUNCTION__, __FILE__, __LINE__, static_cast<uint32_t>(color)                        \
-  }
+  [](const char* f) -> tracy_interface::location {                                                 \
+    static tracy_interface::location l{nullptr, f, __FILE__, __LINE__,                             \
+                                       static_cast<uint32_t>(color)};                              \
+    return l;                                                                                      \
+  }(__FUNCTION__)
 #define CURRENT_LOCATION_NC(name, color)                                                           \
-  tracy_interface::location { name, __FUNCTION__, __FILE__, __LINE__, static_cast<uint32_t>(color) }
+  [](const char* f) -> tracy_interface::location {                                                 \
+    static tracy_interface::location l{name, f, __FILE__, __LINE__, static_cast<uint32_t>(color)}; \
+    return l;                                                                                      \
+  }(__FUNCTION__)
 
 namespace profiling {
 
