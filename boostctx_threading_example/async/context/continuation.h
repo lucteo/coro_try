@@ -6,71 +6,165 @@
 namespace async {
 namespace context {
 
-//! Handle type representing a context.
-//! This can be thpught as a point from which we can continue exection of the program.
-using context_handle = boost::context::detail::fcontext_t;
+//! A handle for a continuation.
+//! This can be thought as a point from which we can susoend and resume exection of the program.
+//! Created by `callcc` and `resume` functions.
+using continuation_t = boost::context::detail::fcontext_t;
 
 namespace detail {
 
-context_handle from_boost_continuation(boost::context::continuation& c) {
-  context_handle* src = reinterpret_cast<context_handle*>(&c);
-  context_handle r = *src;
-  *src = nullptr;
-  return r;
-}
-boost::context::continuation to_boost_continuation(context_handle h) {
-  return std::move(*reinterpret_cast<boost::context::continuation*>(&h));
-}
-
 //! The memory space for the stack of a new context
-using stack_context = boost::context::stack_context;
+using stack_t = boost::context::stack_context;
+
+//! The type of object used for transferring a conttinuation handle with some data.
+using boost::context::detail::transfer_t;
+
+using boost::context::detail::jump_fcontext;
+using boost::context::detail::make_fcontext;
+using boost::context::detail::ontop_fcontext;
 
 } // namespace detail
 
-//! Concept for the context function types.
-//! This matches all invocables with the signature `(context_handle) -> context_handle`.
+//! Concept for the context-switching function types.
+//! This matches all invocables with the signature `(continuation_t) -> continuation_t`.
 template <typename F>
-concept context_function = requires(F&& f, context_handle continuation) {
-  { std::invoke(std::forward<F>(f), continuation) } -> std::same_as<context_handle>;
+concept context_function = requires(F&& f, continuation_t continuation) {
+  { std::invoke(std::forward<F>(f), continuation) } -> std::same_as<continuation_t>;
 };
 
 template <typename T>
-concept stack_allocator = requires(T obj, detail::stack_context stack) {
-  { obj.allocate() } -> std::same_as<detail::stack_context>;
+concept stack_allocator = requires(T obj, detail::stack_t stack) {
+  { obj.allocate() } -> std::same_as<detail::stack_t>;
   { obj.deallocate(stack) };
 };
 
-inline context_handle callcc(context_function auto&& f);
-inline context_handle callcc(std::allocator_arg_t, stack_allocator auto&& salloc,
+namespace detail {
+
+//! The constrol structure that needs to be placed on a stack to be able to use it for stackfull
+//! coroutines. We need to know how to deallocate the stack memory, and we also need to store the
+//! data for the main function to be run on this stack.
+template <stack_allocator S, context_function F> struct stack_control_structure {
+  //! The stack we are operating on.
+  detail::stack_t stack_;
+  //! The allocator used to create the stack, and to deallocate it.
+  std::decay_t<S> allocator_;
+  //! The main function to run in this new context.
+  std::decay_t<F> main_function_;
+
+  friend void destroy(stack_control_structure* record) {
+    // Save needed data.
+    S allocator = std::move(record->allocator_);
+    stack_t stack = record->stack_;
+    // Destruct the object.
+    record->~stack_control_structure();
+    // Destroy the stack.
+    allocator.deallocate(stack);
+  }
+
+  //! The end of the useful portion of the stack.
+  void* stack_end() const noexcept {
+    // Create a 64-byte gap between the control structure and the usefule stack.
+    constexpr uintptr_t gap = 64;
+    return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(this) - gap);
+  }
+  //! The begin of the useful portion of the stack.
+  void* stack_begin() const noexcept {
+    return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(stack_.sp) -
+                                   static_cast<uintptr_t>(stack_.size));
+  }
+  //! The useful size of the stack (where the executing code can store data).
+  uintptr_t useful_size() const noexcept {
+    return reinterpret_cast<uintptr_t>(stack_end()) - reinterpret_cast<uintptr_t>(stack_begin());
+  }
+};
+
+//! Allocate memory to be used as stack by stackfull coroutines.
+inline auto allocate_stack(stack_allocator auto&& allocator, context_function auto&& f) {
+  using control_t = stack_control_structure<decltype(allocator), decltype(f)>;
+  // Allocate the stack.
+  stack_t stack = allocator.allocate();
+  // Put the control structure on the stack, at the end of the allocated space.
+  uintptr_t align = alignof(control_t);
+  void* p = reinterpret_cast<void*>(
+      (reinterpret_cast<uintptr_t>(stack.sp) - static_cast<uintptr_t>(sizeof(control_t))) & ~align);
+  return new (p)
+      control_t{stack, std::forward<decltype(allocator)>(allocator), std::forward<decltype(f)>(f)};
+};
+
+//! Called when finishing executing everything in a stack execution context to clean up the stack.
+template <typename C>
+inline detail::transfer_t execution_context_exit(detail::transfer_t t) noexcept {
+  destroy(reinterpret_cast<C*>(t.data));
+  return {nullptr, nullptr};
+}
+
+//! The entry point for a stack execution context.
+//! Prepares the execution of code and starts the *main function* (the one passed to `callcc`).
+template <typename C> inline void execution_context_entry(detail::transfer_t t) noexcept {
+  // The parameter passed in is our control structure.
+  auto* control = reinterpret_cast<C*>(t.data);
+  assert(control);
+  assert(t.fctx);
+
+  // Jump back to the end of `create_execution_context`.
+  t = detail::jump_fcontext(t.fctx, nullptr);
+  // Start executing the given function.
+  t.fctx = std::invoke(control->main_function_, t.fctx);
+  assert(t.fctx);
+
+  // Destroy the stack context.
+  detail::ontop_fcontext(t.fctx, control, execution_context_exit<C>);
+  // Should never reach this point.
+  assert(false);
+}
+
+//! Creates an execution context, and starts executing the given function.
+//! Returns a continuation handle returned from the function.
+inline continuation_t create_execution_context(stack_allocator auto&& allocator,
+                                               context_function auto&& f) {
+  auto* control =
+      allocate_stack(std::forward<decltype(allocator)>(allocator), std::forward<decltype(f)>(f));
+
+  // Create a context for running the new code.
+  using C = std::decay_t<decltype(*control)>;
+  continuation_t ctx = detail::make_fcontext(control->stack_end(), control->useful_size(),
+                                             &execution_context_entry<C>);
+  assert(ctx != nullptr);
+  // Transfer the control to `execution_context_entry`, in the given context.
+  ctx = detail::jump_fcontext(ctx, control).fctx;
+  // Now execute the main function of the execution context.
+  return detail::jump_fcontext(ctx, nullptr).fctx;
+}
+
+} // namespace detail
+
+inline continuation_t callcc(context_function auto&& f);
+inline continuation_t callcc(std::allocator_arg_t, stack_allocator auto&& salloc,
                              context_function auto&& f);
+inline continuation_t resume(continuation_t continuation);
 
 //! Call with current continuation.
 //! Takes the context of the code immediatelly following this function call, and passes it to the
 //! given context function. The given function is executed in a new stack context. We can suspend
 //! the context and resume other context, or the given context.
-inline context_handle callcc(context_function auto&& f) {
+inline continuation_t callcc(context_function auto&& f) {
   return callcc(std::allocator_arg, boost::context::fixedsize_stack(),
                 std::forward<decltype(f)>(f));
 }
-inline context_handle callcc(std::allocator_arg_t, stack_allocator auto&& salloc,
+inline continuation_t callcc(std::allocator_arg_t, stack_allocator auto&& salloc,
                              context_function auto&& f) {
   (void)profiling::zone{CURRENT_LOCATION()};
-  using bcont = boost::context::continuation;
-  auto ff = [f = std::move(f)](bcont&& c) -> bcont {
-    auto result = std::invoke(std::move(f), detail::from_boost_continuation(c));
-    return detail::to_boost_continuation(result);
-  };
-  auto r = boost::context::callcc(std::allocator_arg, salloc, std::move(ff));
-  return detail::from_boost_continuation(r);
+  return detail::create_execution_context(std::forward<decltype(salloc)>(salloc),
+                                          std::forward<decltype(f)>(f));
 }
 
 //! Resumes the given continuation.
 //! The current execution is interrupted, and the program continues from the given continuation
 //! point. Returns the context that has been suspended.
-inline context_handle resume(context_handle continuation) {
+inline continuation_t resume(continuation_t continuation) {
   (void)profiling::zone{CURRENT_LOCATION()};
   assert(continuation);
-  return boost::context::detail::jump_fcontext(continuation, nullptr).fctx;
+  return detail::jump_fcontext(continuation, nullptr).fctx;
 }
 
 } // namespace context

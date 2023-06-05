@@ -14,7 +14,7 @@ public:
 
   template <typename Fn> void spawn(Fn&& f) {
     auto f_cont = [this, f = std::forward<Fn>(f)](
-                      context::context_handle thread_cont) -> context::context_handle {
+                      context::continuation_t thread_cont) -> context::continuation_t {
       this->thread_cont_ = thread_cont;
       res_ = f();
       auto c = this->on_async_complete();
@@ -40,13 +40,13 @@ private:
     second_finished,
   };
 
-  context::context_handle cont_;
+  context::continuation_t cont_;
   T res_;
   std::atomic<sync_state> sync_state_{sync_state::both_working};
-  context::context_handle main_cont_;
-  context::context_handle thread_cont_;
+  context::continuation_t main_cont_;
+  context::continuation_t thread_cont_;
 
-  context::context_handle on_async_complete() {
+  context::continuation_t on_async_complete() {
     sync_state expected{sync_state::both_working};
     if (sync_state_.compare_exchange_strong(expected, sync_state::first_finished)) {
       // We are first to arrive at completion.
@@ -65,7 +65,7 @@ private:
   }
 
   void on_main_complete() {
-    auto c = context::callcc([this](context::context_handle await_cc) -> context::context_handle {
+    auto c = context::callcc([this](context::continuation_t await_cc) -> context::continuation_t {
       sync_state expected{sync_state::both_working};
       if (sync_state_.compare_exchange_strong(expected, sync_state::first_finishing)) {
         // We are first to arrive at completion.
