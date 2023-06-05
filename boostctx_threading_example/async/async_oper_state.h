@@ -79,6 +79,7 @@ private:
         return await_cc;
       }
     });
+    (void) c;
     // We are here if both threads finish; but we don't know which thread finished last and is
     // currently executing this.
   }

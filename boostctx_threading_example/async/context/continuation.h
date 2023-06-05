@@ -6,12 +6,28 @@
 namespace async {
 namespace context {
 
+namespace detail {
+//! Handle type representing a context.
+using context_handle = boost::context::detail::fcontext_t;
+
+context_handle from_boost_continuation(boost::context::continuation& c) {
+  context_handle* src = reinterpret_cast<context_handle*>(&c);
+  context_handle r = *src;
+  *src = nullptr;
+  return r;
+}
+boost::context::continuation to_boost_continuation(context_handle h) {
+  return std::move(*reinterpret_cast<boost::context::continuation*>(&h));
+}
+} // namespace detail
+
+//! A continuation: the code that follows a certain point.
 class continuation {
-  boost::context::continuation underlying_continuation_;
+  detail::context_handle handle_;
+  using boost_continuation = boost::context::continuation;
 
 public:
-  explicit continuation(boost::context::continuation&& c)
-      : underlying_continuation_(std::move(c)) {}
+  explicit continuation(detail::context_handle h) : handle_(h) {}
 
   continuation() noexcept = default;
   ~continuation() = default;
@@ -27,20 +43,19 @@ public:
       profiling::zone zone{CURRENT_LOCATION()};
       (void)zone;
     }
-    return continuation{underlying_continuation_.resume()};
+    auto cont = detail::to_boost_continuation(handle_).resume();
+    detail::context_handle h = detail::from_boost_continuation(cont);
+    return continuation{h};
   }
 
   // TODO: resume_with
   // TODO: operator <<
   // TODO: swap
 
-  explicit operator bool() const noexcept { return bool{underlying_continuation_}; }
-  bool operator!() const noexcept { return !bool{underlying_continuation_}; }
+  explicit operator bool() const noexcept { return handle_ != nullptr; }
+  bool operator!() const noexcept { return handle_ == nullptr; }
 
-  const boost::context::continuation& underlying() const { return underlying_continuation_; }
-  boost::context::continuation&& sink_to_underlying() {
-    return std::move(underlying_continuation_);
-  }
+  detail::context_handle handle() const { return handle_; }
 };
 
 // TODO: concept for (continuation) -> continuation
@@ -52,9 +67,11 @@ template <typename F> continuation callcc(F&& f) {
   }
   using bcont = boost::context::continuation;
   auto r = boost::context::callcc([f = std::move(f)](bcont&& c) -> bcont {
-    return f(continuation{std::move(c)}).sink_to_underlying();
+    auto our_in_cont = continuation{detail::from_boost_continuation(c)};
+    auto our_out_cont = f(std::move(our_in_cont));
+    return detail::to_boost_continuation(our_out_cont.handle());
   });
-  return continuation{std::move(r)};
+  return continuation{detail::from_boost_continuation(r)};
 }
 
 } // namespace context
