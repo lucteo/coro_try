@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../profiling.h"
+
 // TODO: can we include less than this?
 #include <boost/context/continuation.hpp>
 
@@ -22,6 +24,11 @@ using boost::context::detail::transfer_t;
 using boost::context::detail::jump_fcontext;
 using boost::context::detail::make_fcontext;
 using boost::context::detail::ontop_fcontext;
+
+//! Returns a value from the continuation; to be used in profiling.
+uint64_t as_value(continuation_t c) {
+  return static_cast<uint64_t>(reinterpret_cast<uintptr_t>(c));
+}
 
 } // namespace detail
 
@@ -108,7 +115,11 @@ template <typename C> inline void execution_context_entry(detail::transfer_t t) 
   assert(t.fctx);
 
   // Start executing the given function.
+  (void)profiling::zone{CURRENT_LOCATION_NC("callcc.start", profiling::color::green)}.set_value(
+      detail::as_value(t.fctx));
   t.fctx = std::invoke(control->main_function_, t.fctx);
+  (void)profiling::zone{CURRENT_LOCATION_NC("callcc.end", profiling::color::green)}.set_value(
+      detail::as_value(t.fctx));
   assert(t.fctx);
 
   // Destroy the stack context.
@@ -150,7 +161,8 @@ inline continuation_t callcc(context_function auto&& f) {
 }
 inline continuation_t callcc(std::allocator_arg_t, stack_allocator auto&& salloc,
                              context_function auto&& f) {
-  (void)profiling::zone{CURRENT_LOCATION()};
+  // detail::profile_event_callcc();
+  (void)profiling::zone{CURRENT_LOCATION_NC("callcc", profiling::color::green)};
   return detail::create_execution_context(std::forward<decltype(salloc)>(salloc),
                                           std::forward<decltype(f)>(f));
 }
@@ -159,7 +171,8 @@ inline continuation_t callcc(std::allocator_arg_t, stack_allocator auto&& salloc
 //! The current execution is interrupted, and the program continues from the given continuation
 //! point. Returns the context that has been suspended.
 inline continuation_t resume(continuation_t continuation) {
-  (void)profiling::zone{CURRENT_LOCATION()};
+  (void)profiling::zone{CURRENT_LOCATION_NC("resume", profiling::color::green)}.set_value(
+      detail::as_value(continuation));
   assert(continuation);
   return detail::jump_fcontext(continuation, nullptr).fctx;
 }

@@ -34,6 +34,11 @@ struct zone {
   explicit zone(const tracy_interface::location& loc) { tracy_interface::emit_zone_begin(&loc); }
 
   ~zone() { tracy_interface::emit_zone_end(); }
+
+  void set_dyn_name(std::string_view name) { tracy_interface::set_dyn_name(name); }
+  void set_text(std::string_view text) { tracy_interface::set_text(text); }
+  void set_color(uint32_t color) { tracy_interface::set_color(color); }
+  void set_value(uint64_t value) { tracy_interface::set_value(value); }
 };
 
 inline void set_cur_thread_name(const char* static_name) {
@@ -55,6 +60,11 @@ struct zone {
   explicit zone(int dummy) {}
 
   ~zone() = default;
+
+  void set_dyn_name(std::string_view name) {}
+  void set_text(std::string_view text) {}
+  void set_color(uint32_t color) {}
+  void set_value(uint64_t value) {}
 };
 
 inline void set_cur_thread_name(const char* static_name) {}
@@ -68,6 +78,7 @@ namespace profiling {
 enum class color {
   automatic = 0,
   gray = 0x808080,
+  green = 0x008000,
 };
 
 inline void sleep(int seconds) {
