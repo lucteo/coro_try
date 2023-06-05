@@ -99,15 +99,14 @@ inline detail::transfer_t execution_context_exit(detail::transfer_t t) noexcept 
 }
 
 //! The entry point for a stack execution context.
-//! Prepares the execution of code and starts the *main function* (the one passed to `callcc`).
+//! Executes the *main function* (the one passed to `callcc`), and then destroys the execution
+//! context.
 template <typename C> inline void execution_context_entry(detail::transfer_t t) noexcept {
   // The parameter passed in is our control structure.
   auto* control = reinterpret_cast<C*>(t.data);
   assert(control);
   assert(t.fctx);
 
-  // Jump back to the end of `create_execution_context`.
-  t = detail::jump_fcontext(t.fctx, nullptr);
   // Start executing the given function.
   t.fctx = std::invoke(control->main_function_, t.fctx);
   assert(t.fctx);
@@ -119,7 +118,7 @@ template <typename C> inline void execution_context_entry(detail::transfer_t t) 
 }
 
 //! Creates an execution context, and starts executing the given function.
-//! Returns a continuation handle returned from the function.
+//! Returns the continuation handle returned from the function.
 inline continuation_t create_execution_context(stack_allocator auto&& allocator,
                                                context_function auto&& f) {
   auto* control =
@@ -131,9 +130,7 @@ inline continuation_t create_execution_context(stack_allocator auto&& allocator,
                                              &execution_context_entry<C>);
   assert(ctx != nullptr);
   // Transfer the control to `execution_context_entry`, in the given context.
-  ctx = detail::jump_fcontext(ctx, control).fctx;
-  // Now execute the main function of the execution context.
-  return detail::jump_fcontext(ctx, nullptr).fctx;
+  return detail::jump_fcontext(ctx, control).fctx;
 }
 
 } // namespace detail
