@@ -6,9 +6,11 @@
 namespace async {
 namespace context {
 
-namespace detail {
 //! Handle type representing a context.
+//! This can be thpught as a point from which we can continue exection of the program.
 using context_handle = boost::context::detail::fcontext_t;
+
+namespace detail {
 
 context_handle from_boost_continuation(boost::context::continuation& c) {
   context_handle* src = reinterpret_cast<context_handle*>(&c);
@@ -21,54 +23,22 @@ boost::context::continuation to_boost_continuation(context_handle h) {
 }
 } // namespace detail
 
-//! A continuation: the code that follows a certain point.
-class continuation {
-  detail::context_handle handle_;
-  using boost_continuation = boost::context::continuation;
+// TODO: concept for (context_handle) -> context_handle
 
-public:
-  explicit continuation(detail::context_handle h) : handle_(h) {}
-
-  continuation() noexcept = default;
-  ~continuation() = default;
-
-  continuation(continuation&&) noexcept = default;
-  continuation& operator=(continuation&&) noexcept = default;
-
-  continuation(const continuation&) noexcept = delete;
-  continuation& operator=(const continuation&) noexcept = delete;
-
-  continuation resume() {
-    (void) profiling::zone{CURRENT_LOCATION()};
-    assert(handle_);
-    auto r = boost::context::detail::jump_fcontext(std::exchange(handle_, nullptr), nullptr);
-    return continuation{r.fctx};
-  }
-
-  // TODO: resume_with
-  // TODO: operator <<
-  // TODO: swap
-
-  explicit operator bool() const noexcept { return handle_ != nullptr; }
-  bool operator!() const noexcept { return handle_ == nullptr; }
-
-  detail::context_handle handle() const { return handle_; }
-};
-
-// TODO: concept for (continuation) -> continuation
-
-template <typename F> continuation callcc(F&& f) {
-  {
-    profiling::zone zone{CURRENT_LOCATION()};
-    (void)zone;
-  }
+template <typename F> context_handle callcc(F&& f) {
+  (void)profiling::zone{CURRENT_LOCATION()};
   using bcont = boost::context::continuation;
   auto r = boost::context::callcc([f = std::move(f)](bcont&& c) -> bcont {
-    auto our_in_cont = continuation{detail::from_boost_continuation(c)};
-    auto our_out_cont = f(std::move(our_in_cont));
-    return detail::to_boost_continuation(our_out_cont.handle());
+    auto result = f(detail::from_boost_continuation(c));
+    return detail::to_boost_continuation(result);
   });
-  return continuation{detail::from_boost_continuation(r)};
+  return detail::from_boost_continuation(r);
+}
+
+inline context_handle resume(context_handle cont) {
+  (void)profiling::zone{CURRENT_LOCATION()};
+  assert(cont);
+  return boost::context::detail::jump_fcontext(cont, nullptr).fctx;
 }
 
 } // namespace context
