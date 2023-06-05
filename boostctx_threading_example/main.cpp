@@ -57,6 +57,7 @@ int main() {
   int r = concurrency_example();
   std::cout << r << "\n";
 
+  profiling::sleep(1);
   trace(__FUNCTION__, "expecting a crash here, while joining threads");
   // TODO: handle this gracefully
   async::global_thread_pool().clear();

@@ -1,12 +1,9 @@
 #pragma once
 
+#include "context/continuation.h"
 #include "global_thread_pool.h"
 
-#include <boost/context/continuation.hpp>
-
 namespace async {
-
-namespace ctx = boost::context;
 
 template <typename T> class async_oper_state {
 public:
@@ -16,8 +13,8 @@ public:
   async_oper_state(async_oper_state&&) = delete;
 
   template <typename Fn> void spawn(Fn&& f) {
-    auto f_cont = [this,
-                   f = std::forward<Fn>(f)](ctx::continuation&& thread_cont) -> ctx::continuation {
+    auto f_cont = [this, f = std::forward<Fn>(f)](
+                      context::continuation&& thread_cont) -> context::continuation {
       this->thread_cont_ = std::move(thread_cont);
       res_ = f();
       auto c = this->on_async_complete();
@@ -27,7 +24,7 @@ public:
       return std::move(this->thread_cont_);
     };
     global_thread_pool().start_thread(
-        [this, f_cont = std::move(f_cont)] { this->cont_ = ctx::callcc(std::move(f_cont)); });
+        [this, f_cont = std::move(f_cont)] { this->cont_ = context::callcc(std::move(f_cont)); });
   }
 
   T await() {
@@ -43,13 +40,13 @@ private:
     second_finished,
   };
 
-  ctx::continuation cont_;
+  context::continuation cont_;
   T res_;
   std::atomic<sync_state> sync_state_{sync_state::both_working};
-  ctx::continuation main_cont_;
-  ctx::continuation thread_cont_;
+  context::continuation main_cont_;
+  context::continuation thread_cont_;
 
-  ctx::continuation on_async_complete() {
+  context::continuation on_async_complete() {
     sync_state expected{sync_state::both_working};
     if (sync_state_.compare_exchange_strong(expected, sync_state::first_finished)) {
       // We are first to arrive at completion.
@@ -68,7 +65,7 @@ private:
   }
 
   void on_main_complete() {
-    auto c = ctx::callcc([this](ctx::continuation&& await_cc) -> ctx::continuation {
+    auto c = context::callcc([this](context::continuation&& await_cc) -> context::continuation {
       sync_state expected{sync_state::both_working};
       if (sync_state_.compare_exchange_strong(expected, sync_state::first_finishing)) {
         // We are first to arrive at completion.
