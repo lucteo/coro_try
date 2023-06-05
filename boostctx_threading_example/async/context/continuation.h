@@ -39,13 +39,10 @@ public:
   continuation& operator=(const continuation&) noexcept = delete;
 
   continuation resume() {
-    {
-      profiling::zone zone{CURRENT_LOCATION()};
-      (void)zone;
-    }
-    auto cont = detail::to_boost_continuation(handle_).resume();
-    detail::context_handle h = detail::from_boost_continuation(cont);
-    return continuation{h};
+    (void) profiling::zone{CURRENT_LOCATION()};
+    assert(handle_);
+    auto r = boost::context::detail::jump_fcontext(std::exchange(handle_, nullptr), nullptr);
+    return continuation{r.fctx};
   }
 
   // TODO: resume_with
