@@ -21,6 +21,10 @@ context_handle from_boost_continuation(boost::context::continuation& c) {
 boost::context::continuation to_boost_continuation(context_handle h) {
   return std::move(*reinterpret_cast<boost::context::continuation*>(&h));
 }
+
+//! The memory space for the stack of a new context
+using stack_context = boost::context::stack_context;
+
 } // namespace detail
 
 //! Concept for the context function types.
@@ -30,17 +34,33 @@ concept context_function = requires(F&& f, context_handle continuation) {
   { std::invoke(std::forward<F>(f), continuation) } -> std::same_as<context_handle>;
 };
 
+template <typename T>
+concept stack_allocator = requires(T obj, detail::stack_context stack) {
+  { obj.allocate() } -> std::same_as<detail::stack_context>;
+  { obj.deallocate(stack) };
+};
+
+inline context_handle callcc(context_function auto&& f);
+inline context_handle callcc(std::allocator_arg_t, stack_allocator auto&& salloc,
+                             context_function auto&& f);
+
 //! Call with current continuation.
 //! Takes the context of the code immediatelly following this function call, and passes it to the
 //! given context function. The given function is executed in a new stack context. We can suspend
 //! the context and resume other context, or the given context.
 inline context_handle callcc(context_function auto&& f) {
+  return callcc(std::allocator_arg, boost::context::fixedsize_stack(),
+                std::forward<decltype(f)>(f));
+}
+inline context_handle callcc(std::allocator_arg_t, stack_allocator auto&& salloc,
+                             context_function auto&& f) {
   (void)profiling::zone{CURRENT_LOCATION()};
   using bcont = boost::context::continuation;
-  auto r = boost::context::callcc([f = std::move(f)](bcont&& c) -> bcont {
+  auto ff = [f = std::move(f)](bcont&& c) -> bcont {
     auto result = std::invoke(std::move(f), detail::from_boost_continuation(c));
     return detail::to_boost_continuation(result);
-  });
+  };
+  auto r = boost::context::callcc(std::allocator_arg, salloc, std::move(ff));
   return detail::from_boost_continuation(r);
 }
 
