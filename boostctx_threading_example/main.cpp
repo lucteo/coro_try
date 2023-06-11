@@ -4,31 +4,7 @@
 #include <iostream>
 #include <chrono>
 
-namespace ctx = boost::context;
 using namespace std::chrono_literals;
-
-void trace(const char* path, const char* msg) {
-  std::cout << "t=" << std::this_thread::get_id() << ", p=" << path << ": " << msg << "\n";
-  fflush(stdout);
-}
-void tracecont(const char* path, const char* msg, const ctx::continuation& c) {
-  std::cout << "t=" << std::this_thread::get_id() << ", p=" << path << ": " << msg << "=" << c
-            << "\n";
-  fflush(stdout);
-}
-
-void absorb(const char* path, ctx::continuation&& c) {
-  ctx::continuation empty;
-  tracecont(path, "absorbing", c);
-  c.swap(empty);
-}
-
-void consume(const char* path, ctx::continuation& c) {
-  while (c) {
-    tracecont(path, "consume resuming", c);
-    c = c.resume();
-  }
-}
 
 int long_task(int input) {
   profiling::zone zone{CURRENT_LOCATION()};
@@ -63,7 +39,7 @@ int main() {
   std::cout << r << "\n";
 
   profiling::sleep_for(100ms);
-  trace(__FUNCTION__, "expecting a crash here, while joining threads");
+  std::cout << "expecting a crash here, while joining threads\n";
   // TODO: handle this gracefully
   async::global_thread_pool().clear();
 
