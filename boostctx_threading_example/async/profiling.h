@@ -30,6 +30,9 @@
 
 namespace profiling {
 
+struct zone_stack_snapshot;
+struct duplicate_zones_stack;
+
 struct zone {
   explicit zone(const tracy_interface::location& loc) : location_(&loc), parent_(thread_top_zone_) {
     thread_top_zone_ = this;
@@ -46,37 +49,56 @@ struct zone {
   void set_color(uint32_t color) { tracy_interface::set_color(color); }
   void set_value(uint64_t value) { tracy_interface::set_value(value); }
 
-  // private:
+private:
   const tracy_interface::location* location_;
   zone* parent_;
   static thread_local zone* thread_top_zone_;
+
+  friend zone_stack_snapshot;
+  friend duplicate_zones_stack;
 };
 
 inline thread_local zone* zone::thread_top_zone_{nullptr};
 
-struct spawn_data {
+struct zone_stack_snapshot {
+  zone_stack_snapshot() : top_zone_{zone::thread_top_zone_} {}
+
+private:
   zone* top_zone_;
+  friend struct duplicate_zones_stack;
 };
 
-inline zone* spawn_begin() { return zone::thread_top_zone_; }
-
-namespace detail {
-//! Emit the zones in the reverse order.
-//! Use the base zone as a new seed for coloring the new zones.
-void emit_reverse(zone* zones_list);
-} // namespace detail
-
-inline void spawn_continue(zone* top_zone) {
-  detail::emit_reverse(top_zone);
-  zone::thread_top_zone_ = top_zone;
-}
-
-inline void await_first_complete() {
-  for (zone* z = zone::thread_top_zone_; z; z = z->parent_) {
-    tracy_interface::emit_zone_end();
+struct duplicate_zones_stack {
+  explicit duplicate_zones_stack(zone_stack_snapshot snapshot) : top_zone_(snapshot.top_zone_) {
+    zone* top_zone = snapshot.top_zone_;
+    assert(zone::thread_top_zone_ == nullptr);
+    zones_count_ = emit_zones_rec(top_zone, top_zone);
+    zone::thread_top_zone_ = top_zone;
   }
-  zone::thread_top_zone_ = nullptr;
-}
+
+  ~duplicate_zones_stack() {
+    // Remove the copied zones
+    assert(zone::thread_top_zone_ == top_zone_);
+    for (zone* z = top_zone_; z && zones_count_-- > 0; z = z->parent_) {
+      tracy_interface::emit_zone_end();
+    }
+    zone::thread_top_zone_ = nullptr;
+  }
+
+  duplicate_zones_stack(duplicate_zones_stack&& other) = delete;
+  duplicate_zones_stack& operator=(duplicate_zones_stack&& other) = delete;
+
+  duplicate_zones_stack(const duplicate_zones_stack& other) = delete;
+  duplicate_zones_stack& operator=(const duplicate_zones_stack& other) = delete;
+
+private:
+  //! The zone that was on top when we started the split.
+  zone* top_zone_;
+  //! The number of zones we copied;
+  int zones_count_{0};
+
+  static int emit_zones_rec(zone* z, zone* base);
+};
 
 inline void set_cur_thread_name(const char* static_name) {
   tracy_interface::set_cur_thread_name(static_name);
@@ -104,9 +126,21 @@ struct zone {
   void set_value(uint64_t value) {}
 };
 
-inline zone* spawn_begin() { return {}; }
-inline void spawn_continue(zone*) {}
-inline void await_first_complete() {}
+struct zone_stack_snapshot {
+  zone_stack_snapshot() {}
+};
+
+struct duplicate_zones_stack {
+  explicit duplicate_zones_stack(zone_stack_snapshot) {}
+
+  ~duplicate_zones_stack() {}
+
+  duplicate_zones_stack(duplicate_zones_stack&& other) = delete;
+  duplicate_zones_stack& operator=(duplicate_zones_stack&& other) = delete;
+
+  duplicate_zones_stack(const duplicate_zones_stack& other) = delete;
+  duplicate_zones_stack& operator=(const duplicate_zones_stack& other) = delete;
+};
 
 inline void set_cur_thread_name(const char* static_name) {}
 

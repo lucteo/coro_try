@@ -13,10 +13,9 @@ public:
   async_oper_state(async_oper_state&&) = delete;
 
   template <typename Fn> void spawn(Fn&& f) {
-    auto spawn_data = profiling::spawn_begin();
-    auto f_cont = [this, f = std::forward<Fn>(f), spawn_data](
+    profiling::zone_stack_snapshot current_zones;
+    auto f_cont = [this, f = std::forward<Fn>(f)](
                       context::continuation_t thread_cont) -> context::continuation_t {
-      profiling::spawn_continue(spawn_data);
       this->thread_cont_ = thread_cont;
       res_ = f();
       auto c = this->on_async_complete();
@@ -25,8 +24,10 @@ public:
       }
       return std::exchange(this->thread_cont_, nullptr);
     };
-    global_thread_pool().start_thread(
-        [this, f_cont = std::move(f_cont)] { this->cont_ = context::callcc(std::move(f_cont)); });
+    global_thread_pool().start_thread([this, f_cont = std::move(f_cont), current_zones] {
+      profiling::duplicate_zones_stack scoped_zones_stack{current_zones};
+      this->cont_ = context::callcc(std::move(f_cont));
+    });
   }
 
   T await() {
@@ -53,7 +54,6 @@ private:
     if (sync_state_.compare_exchange_strong(expected, sync_state::first_finished)) {
       // We are first to arrive at completion.
       // There is nothing for this thread to do here, we can safely exit.
-      profiling::await_first_complete();
       return nullptr;
     } else {
       // If the main thread is currently finishing, wait for it to finish.
@@ -76,14 +76,13 @@ private:
         this->main_cont_ = await_cc;
         // We are done "finishing"
         sync_state_ = sync_state::first_finished;
-        profiling::await_first_complete();
         return std::exchange(this->thread_cont_, nullptr);
       } else {
         // The async thread finished; we can continue directly.
         return await_cc;
       }
     });
-    (void) c;
+    (void)c;
     // We are here if both threads finish; but we don't know which thread finished last and is
     // currently executing this.
   }

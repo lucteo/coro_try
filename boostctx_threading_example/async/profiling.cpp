@@ -56,20 +56,18 @@ uint32_t get_hsv_color(uint64_t hue, int value) {
   return 0xFF000000 | (r << 16) | (g << 8) | b;
 }
 
-int emit_reverse_rec(zone* z, zone* base) {
+} // namespace detail
+
+int duplicate_zones_stack::emit_zones_rec(zone* z, zone* base) {
   if (z) {
-    int depth = emit_reverse_rec(z->parent_, base);
+    int depth = emit_zones_rec(z->parent_, base);
     tracy_interface::emit_zone_begin(z->location_);
     auto hue = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(base));
-    tracy_interface::set_color(get_hsv_color(hue, depth));
+    tracy_interface::set_color(detail::get_hsv_color(hue, depth));
     return depth + 1;
   } else
     return 0;
 }
-
-void emit_reverse(zone* zones_list) { (void)emit_reverse_rec(zones_list, zones_list); }
-
-} // namespace detail
 
 } // namespace profiling
 
