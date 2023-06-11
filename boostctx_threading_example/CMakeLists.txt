@@ -87,7 +87,7 @@ endif ()
 add_library(myproj::myproj ALIAS myproj)
 
 
-add_executable(boostctx_threading_example main.cpp)
+add_executable(boostctx_threading_example async/profiling.cpp main.cpp)
 target_link_libraries(boostctx_threading_example myproj)
 target_link_libraries(boostctx_threading_example CONAN_PKG::boost)
 target_link_libraries(boostctx_threading_example CONAN_PKG::tracy-interface)
