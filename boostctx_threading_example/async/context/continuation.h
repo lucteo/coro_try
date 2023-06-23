@@ -3,28 +3,24 @@
 #include "../profiling.h"
 #include <context_core_api.h>
 
-// TODO: can we include less than this?
-#include <boost/context/continuation.hpp>
-
 namespace async {
 namespace context {
 
 //! A handle for a continuation.
 //! This can be thought as a point from which we can susoend and resume exection of the program.
 //! Created by `callcc` and `resume` functions.
-using continuation_t = boost::context::detail::fcontext_t;
+using continuation_t = context_core_api_fcontext_t;
 
 namespace detail {
 
 //! The memory space for the stack of a new context
-using stack_t = boost::context::stack_context;
+struct stack_t {
+  std::size_t size{0};
+  void* sp{nullptr};
+};
 
 //! The type of object used for transferring a conttinuation handle with some data.
-using boost::context::detail::transfer_t;
-
-using boost::context::detail::jump_fcontext;
-using boost::context::detail::make_fcontext;
-using boost::context::detail::ontop_fcontext;
+using transfer_t = context_core_api_transfer_t;
 
 //! Returns a value from the continuation; to be used in profiling.
 uint64_t as_value(continuation_t c) {
@@ -144,7 +140,7 @@ template <typename C> inline void execution_context_entry(detail::transfer_t t) 
   assert(t.fctx);
 
   // Destroy the stack context.
-  detail::ontop_fcontext(t.fctx, control, execution_context_exit<C>);
+  context_core_api_ontop_fcontext(t.fctx, control, execution_context_exit<C>);
   // Should never reach this point.
   assert(false);
 }
@@ -158,11 +154,11 @@ inline continuation_t create_execution_context(stack_allocator auto&& allocator,
 
   // Create a context for running the new code.
   using C = std::decay_t<decltype(*control)>;
-  continuation_t ctx = detail::make_fcontext(control->stack_end(), control->useful_size(),
-                                             &execution_context_entry<C>);
+  continuation_t ctx = context_core_api_make_fcontext(control->stack_end(), control->useful_size(),
+                                                      execution_context_entry<C>);
   assert(ctx != nullptr);
   // Transfer the control to `execution_context_entry`, in the given context.
-  return detail::jump_fcontext(ctx, control).fctx;
+  return context_core_api_jump_fcontext(ctx, control).fctx;
 }
 
 } // namespace detail
@@ -177,8 +173,7 @@ inline continuation_t resume(continuation_t continuation);
 //! given context function. The given function is executed in a new stack context. We can suspend
 //! the context and resume other context, or the given context.
 inline continuation_t callcc(context_function auto&& f) {
-  return callcc(std::allocator_arg, simple_stack_allocator(),
-                std::forward<decltype(f)>(f));
+  return callcc(std::allocator_arg, simple_stack_allocator(), std::forward<decltype(f)>(f));
 }
 inline continuation_t callcc(std::allocator_arg_t, stack_allocator auto&& salloc,
                              context_function auto&& f) {
@@ -195,7 +190,7 @@ inline continuation_t resume(continuation_t continuation) {
   (void)profiling::zone{CURRENT_LOCATION_NC("resume", profiling::color::green)}.set_value(
       detail::as_value(continuation));
   assert(continuation);
-  return detail::jump_fcontext(continuation, nullptr).fctx;
+  return context_core_api_jump_fcontext(continuation, nullptr).fctx;
 }
 
 } // namespace context
