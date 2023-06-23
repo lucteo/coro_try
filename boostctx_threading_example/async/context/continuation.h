@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../profiling.h"
+#include <context_core_api.h>
 
 // TODO: can we include less than this?
 #include <boost/context/continuation.hpp>

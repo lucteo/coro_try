@@ -52,6 +52,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(myproj INTERFACE Threads::Threads)
 target_link_libraries(myproj INTERFACE CONAN_PKG::boost)
 target_link_libraries(myproj INTERFACE CONAN_PKG::tracy-interface)
+target_link_libraries(myproj INTERFACE CONAN_PKG::context_core_api)
 
 # Use C++20 standard
 target_compile_features(myproj INTERFACE cxx_std_20)
