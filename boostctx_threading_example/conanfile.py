@@ -12,7 +12,7 @@ class CppAsyncRecipe(ConanFile):
     url = "https://github.com/lucteo/coro_try"
     license = "MIT License"
     settings = "compiler", "cppstd"  # Header only - compiler only used for flags
-    tool_requires = ["boost/1.79.0", "tracy-interface/0.1.0", "context_core_api/1.0.0"]
+    tool_requires = ["context_core_api/1.0.0", "tracy-interface/0.1.0"]
     # exports_sources = "include/*"
     generators = "cmake"
 
