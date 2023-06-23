@@ -45,6 +45,26 @@ concept stack_allocator = requires(T obj, detail::stack_t stack) {
   { obj.deallocate(stack) };
 };
 
+class simple_stack_allocator {
+  std::size_t size_;
+
+public:
+  static constexpr std::size_t default_size_ = 1024 * 1024;
+
+  simple_stack_allocator(std::size_t size = default_size_) : size_(default_size_) {}
+
+  detail::stack_t allocate() {
+    void* mem = std::malloc(size_);
+    if (!mem)
+      throw std::bad_alloc();
+    return {size_, static_cast<char*>(mem) + size_};
+  }
+  void deallocate(detail::stack_t stack) {
+    void* mem = static_cast<char*>(stack.sp) - stack.size;
+    std::free(mem);
+  }
+};
+
 namespace detail {
 
 //! The constrol structure that needs to be placed on a stack to be able to use it for stackfull
@@ -156,7 +176,7 @@ inline continuation_t resume(continuation_t continuation);
 //! given context function. The given function is executed in a new stack context. We can suspend
 //! the context and resume other context, or the given context.
 inline continuation_t callcc(context_function auto&& f) {
-  return callcc(std::allocator_arg, boost::context::fixedsize_stack(),
+  return callcc(std::allocator_arg, simple_stack_allocator(),
                 std::forward<decltype(f)>(f));
 }
 inline continuation_t callcc(std::allocator_arg_t, stack_allocator auto&& salloc,
